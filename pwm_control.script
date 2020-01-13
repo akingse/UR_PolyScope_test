@@ -1,0 +1,62 @@
+# ----------------------------------------------------------------
+# Readme
+# creat time:2019/10/31
+# editor: akingse
+# design for:CUS2019
+# pave version:6 / 6+3 / 6+3+3
+# procedure:take and put 1st,scan 1st,take n then scan n then pave n.
+# ----------------------------------------------------------------
+
+
+
+thread pwm_control(): # Pulse width modulation control
+	while True:
+		set_standard_digital_out(3,True)
+		sleep(0.001*t)
+		set_standard_digital_out(3,False)
+		sleep(0.001*(10-t))
+	end
+end
+
+
+def main():
+	#main program
+	movej(point_turn, a=aj, v=vj_idle, r=r_wide)
+	movej(point_take1, a=aj, v=vj_idle, r=r_nar)  # take,up
+	movel(pose_trans(point_take1, dropz), a=al, v=vl_erect)  # take,down
+	set_standard_digital_out(4, True)
+	sleep(1)
+	movel(point_take1, a=al, v=vl_erect, r=r_nar)  # take,up
+	movej(point_turn, a=aj, v=vj_idle, r=r_wide)  # --------------------
+	movej(point_pave1, a=aj, v=vj_idle, r=r_nar)  # pave,up
+	movel(pose_trans(point_pave1, dropz), a=al, v=vl_erect)  # pave,down
+end
+
+
+#main()
+
+def test_first(): #put it in front main function;
+    movel(point_centre,a=aj, v=vj_idle)
+    movel(pose_trans(point_centre, dropz), a=al, v=vl_erect)
+    halt
+end
+
+# main program; pave 6 pieces
+global i = 0
+SubP_initialize()
+SubP_scan_datum()
+calculate_datum(p_1, p_2, p_3, p_4)
+# test_first()
+while (i < 5): # 0,1,2,3,4
+    SubP_scan_take()
+    calculate_per(p_1, p_2, p_3, p_4)
+    SubP_pave()
+    i = i + 1  # 1,2,3,4,5
+end
+SubP_take_back()
+
+
+
+
+
+
