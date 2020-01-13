@@ -1,0 +1,269 @@
+#akingse
+#keep the script order as below;
+
+#initia()
+#calcul()
+#thread()
+#scan()
+#takes()
+#pave()
+#tback()
+#main()
+#----------------------------------------------------------------
+
+def calculate(a,b,c,d):  #version2
+	if (laser_flag):  
+		if (p_3[0]==p_4[0]): 
+			k_1= (p_2[1]-p_1[1])/(p_2[0]-p_1[0])
+			theta_1=r2d(atan(k_1))
+			theta_2=90
+			x_0=p_3[0]
+			y_0=(p_1[1]+p_2[1])/2
+			cp_rz=atan((p_2[1]-p_1[1])/(p_2[0]-p_1[0]))/2
+		else:
+			k_1= (p_2[1]-p_1[1])/(p_2[0]-p_1[0])  
+			k_2= (p_4[1]-p_3[1])/(p_4[0]-p_3[0]) 
+			theta_1=r2d(atan(k_1))  
+			theta_2=r2d(atan(k_2))  
+			x_0= (k_1*p_1[0]-k_2*p_3[0]+p_3[1]-p_1[1])/(k_1-k_2) 
+			y_0= k_1*(x_0-p_1[0])+p_1[1]  
+			if (k_1>0 and k_2<0):
+				cp_rz=(atan(k_1)+atan(k_2)+pi/2)/2
+			elif (k_1<0 and k_2>0):
+				cp_rz=(atan(k_1)+atan(k_2)-pi/2)/2
+			else:
+				cp_rz=0
+			end
+		end
+		point_laser_cross=p[x_0,y_0,p_1[2],pi,0,0]
+		tempz=point_scan_set[2]-point_pave_set[2]
+		offset=p[width/2+x_laser1,0-width/2+y_laser1,tempz,0,0,0-cp_rz]
+		global centre=pose_trans(point_laser_cross,offset)
+		
+		if (norm(norm(theta_1-theta_2)-90)>0.5):
+			popup("angle_over_range",title="message",warning=False,error=True)
+			halt
+		end
+#-----------------------------------------------#
+	else:  #when using laser_2，the same version;	
+		if (p_7[0]==p_8[0]):  
+			d_x=p_7[0]-point_laser[0]-width/2  
+			d_y=(p_5[1]+p_6[1])/2-point_laser[1]-width/2  
+			d_rz=atan((p_6[1]-p_5[1])/(p_6[0]-p_5[0]))/2  
+			global theta_3=r2d(atan(p_6[1]-p_5[1])/(p_6[0]-p_5[0]))
+			global theta_4=90
+		else:
+			k_3=(p_6[1]-p_5[1])/(p_6[0]-p_5[0])  #determined by p_5 and p_6;
+			k_4=(p_8[1]-p_7[1])/(p_8[0]-p_7[0])  #determined by p_7 and p_8;
+			global theta_3=r2d(atan(k_3))
+			global theta_4=r2d(atan(k_4))
+			d_x=norm((k_4*(point_laser[0]-p_7[0])-point_laser[1]+p_7[1])/sqrt(k_4*k_4+1))-width/2
+			d_y=norm((k_3*(point_laser[0]-p_5[0])-point_laser[1]+p_5[1])/sqrt(k_3*k_3+1))-width/2
+			#distance formula from point laser to line3 and line4;
+			if (k_3>0 and k_4<0):
+				d_rz=(atan(k_3)+pi/2+atan(k_4))/2
+			elif (k_3<0 and k_4>0):
+				d_rz=(atan(k_3)-pi/2+atan(k_4))/2
+			else:
+				d_rz=0
+			end
+		end
+		global delta=p[d_x+x_laser2,0-d_y+y_laser2,d_rz,0,0,0]
+		if (norm(norm(theta_3-theta_4)-90)>0.5):
+			popup("angle34_over_range",title="error",warning=False,error=True)
+			halt
+		end
+	end
+end
+
+#----------------------------------------------------------------------
+
+thread catch_point():
+	stopping=run stopping_move()
+	while (True):
+		if (laser_flag):  #when using laser_1;
+			if (get_standard_digital_in(1)==False): 
+				global p_0 = get_actual_tcp_pose()
+				kill stopping
+				break
+			end
+		else:  #when using laser_2;
+			if (get_standard_digital_in(2)==False): 
+				global p_0 = get_actual_tcp_pose()
+				kill stopping
+				break
+			end
+		end
+		sleep (0.001) #sync()
+	end
+end
+#-----------------------#
+thread stopping_move():
+	if (point_scan[1]==-0.100): #p1 p2
+		offset=p[0,0.040,0,0,0,0]
+	elif (point_scan[0]==0.650): #p3 p4
+		offset=p[-0.040,0,0,0,0,0]
+	elif (point_scan[1]==0.010): #p5 p6
+		offset=p[0,-0.040,0,0,0,0]
+	elif (point_scan[0]==0.520): #p7 p8
+		offset=p[0.040,0,0,0,0,0]
+	end
+	point_scan_max=pose_trans(point_scan,offset)
+	movel(point_scan_max,a=acce,v=v_scan)
+end
+#----------------------------------------------------------------------
+
+def SubP_scan(): #stopping version;
+	movej(point_trans_take,a=acce,v=v_idle,r=r_wide)
+	if (i==0):
+		movej(point_take_above,a=acce,v=v_idle,r=r_nar)   #take,up
+		offset=p[0,0,dropz,0,0,0] 
+		movel(pose_trans(point_take_above,offset),a=acce,v=v_erect)  #take,down
+		set_standard_digital_out(4,True)	
+		sleep(1)
+		movel(point_take_above,a=acce,v=v_erect)  #take,up
+		movej(point_trans_take,a=acce,v=v_idle,r=r_wide) #transition point;
+		movej(point_first,a=acce,v=v_idle,r=r_nar) #pave,up
+		offset=p[0,0,dropz,0,0,0]
+		movel(pose_trans(point_first,offset),a=acce,v=v_erect)  #pave,down
+		set_standard_digital_out(4,False)	
+		sleep(0.5)  #wait the suker grip the tile;
+		movel(point_first,a=acce,v=v_erect)  #pave,up
+	end
+	
+	movej(point_scan_set,a=acce,v=v_idle,r=r_wide)
+	global laser_flag=True #when using laser1;
+	global point_scan=p[0.870,-0.100,0.057,pi,0,0] #p1
+	movej(point_scan,a=acce,v=v_idle)        
+	catch=run catch_point()
+	join catch
+		global p_1=p_0
+	point_scan=p[0.670,-0.100,0.057,pi,0,0] #p2
+	movej(point_scan,a=acce,v=v_idle) 
+	catch=run catch_point() 
+	join catch
+		global p_2=p_0
+	
+	point_scan=p[0.650,-0.080,0.057,pi,0,0] #p3
+	movej(point_scan,a=acce,v=v_idle)    
+	catch=run catch_point()
+	join catch
+		global p_3=p_0
+	point_scan=p[0.650,0.130,0.057,pi,0,0] #p4
+	movej(point_scan,a=acce,v=v_idle) 	
+	catch=run catch_point() 
+	join catch
+		global p_4=p_0
+		global p_4_0=0 
+	
+	global p_1=p[0.900,-0.122,0.060,pi,0,0]
+	global p_2=p[0.640,-0.121,0.060,pi,0,0]
+	global p_3=p[0.620,-0.100,0.060,pi,0,0]
+	global p_4=p[0.621,0.150,0.060, pi,0,0]
+end	
+#----------------------------------------------------------------------------
+
+def SubP_take_scan():  #stopping version;
+	movej(point_trans_take,a=acce,v=v_idle,r=r_wide) 
+	movej(point_take_above,a=acce,v=v_idle,r=r_nar)   #take,up
+	offset=p[0,0,dropz+i*thickn,0,0,0] 
+	point_take=pose_trans(point_take_above,offset)  
+	movel(point_take,a=acce,v=v_erect)  #take,down
+	set_standard_digital_out(4,True)	
+	sleep(1)  #wait the suker grip the tile;
+	movel(point_take_above,a=acce,v=v_erect)  #take,up	
+	movej(point_trans_scan,a=acce,v=v_idle,r=r_wide)
+	global laser_flag=False  #when using laser_2,installed at AGV;
+	
+	point_scan=p[0.320,0.010,0.400,pi,0,0] #p5
+	movej(point_scan,a=acce,v=v_idle)    
+	catch=run catch_point()
+	join catch
+		global p_5=p_0
+	point_scan=p[0.510,0.010,0.400,pi,0,0] #p6
+	movej(point_scan,a=acce,v=v_idle)  
+	catch=run catch_point()
+	join catch
+		global p_6=p_0
+	
+	point_scan=p[0.520,-0.010,0.400,pi,0,0] #p7
+	movej(point_scan,a=acce,v=v_idle)   
+	catch=run catch_point()
+	join catch
+		global p_7=p_0
+	point_scan=p[0.520,-0.210,0.400,pi,0,0] #p8
+	movej(point_scan,a=acce,v=v_idle)
+	catch=run catch_point()
+	join catch
+		global p_8=p_0
+	movej(point_trans_pave,a=acce,v=v_load,r=r_nar) 
+	
+	global p_5=p[0.350,0.030,0.400,pi,0,0]
+	global p_6=p[0.515,0.029,0.400,pi,0,0]
+	global p_7=p[0.537,0.010,0.400,pi,0,0]
+	global p_8=p[0.535,-0.220,0.400,pi,0,0]
+end	
+
+#--------------------------------------------------------------------------
+	
+def SubP_take_back(): #take back 9 8 7 6 5 4 3 2 1;
+	popup("Take_back_8", "message", False, False, blocking=True)
+	#global i=8
+	while (i>5): #when take back 9 8 7;
+		global tile_offset=p[0-(width+gap),0-(8-i)*(width+gap),0,0,0,0]
+		SubP_tack_back_action()
+		i=i-1
+	end
+	set_standard_digital_out(6,True)
+	set_standard_digital_out(5,True)
+	sleep(9)
+	if (get_standard_digital_in(0) == True):
+		while (i>=0):	
+			if (i>2):  #when take back 6 5 4;
+				global tile_offset=p[0-(width+gap),0-(5-i)*(width+gap),0,0,0,0]
+			else: #(i>0) #when take back 3 2 1;
+				global tile_offset=p[0,0-i*(width+gap),0,0,0,0]
+			end
+			SubP_tack_back_action()
+			i=i-1
+		end
+	end
+end
+#----------------------------------#	
+def SubP_tack_back_action():
+	point_take_back_above=pose_trans(centre,tile_offset)
+	movej(point_take_back_above,a=acce,v=v_idle,r=r_nar)  #take,up
+	offset=p[-0.002,0.002,dropz+thickn,0,0,0]
+	point_take_back=pose_trans(point_take_back_above,offset)
+	movel(point_take_back,a=acce,v=v_erect)  #take,down
+	set_standard_digital_out(4,True)
+	sleep(1)  
+	movel(point_take_back_above,a=acce,v=v_erect,r=r_wide)  #take,up
+	movej(point_trans_take,a=acce,v=v_load,r=r_wide) 
+	
+	movej(point_take_above,a=acce,v=v_load,r=r_nar)   #back,up
+	offset=p[0,0,dropz+(i-1)*thickn,0,0,0] 
+	point_take=pose_trans(point_take_above,offset)  
+	movel(point_take,a=acce,v=v_erect)  #back,down
+	set_standard_digital_out(4,False)	
+	sleep(0.5) 
+	movel(point_take_above,a=acce,v=v_load)  #back,up
+	movej(point_trans_take,a=acce,v=v_idle)
+end
+#--------------------------------------------------------------------------	
+#main program
+
+SubP_initialize()
+global i=0
+SubP_scan()
+calculate(p_1,p_2,p_3,p_4)
+while (i<5):
+	SubP_take_scan()
+	calculate(p_5,p_6,p_7,p_8)
+	SubP_pave() 
+	i=i+1
+end
+SubP_take_back()
+
+
+
