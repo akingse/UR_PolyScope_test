@@ -1,0 +1,180 @@
+def SubP_initialize():  
+	set_standard_digital_out(4,False)  #close the vacuum valve;
+	set_standard_digital_out(5,False)  #control the AGV;
+	set_standard_digital_out(6,False)  #the flag of AGV direction;
+
+	global pi=3.14159265  #the circumference radio;
+	global width=0.300  #the width of ceramic tile,unit is meter;
+	global thickn=0.0085  #the thickness of ceramic tile; 
+	global gap=0.005  #the gap between two adjoining tiles;
+	global dropz=p[0,0,0.050,0,0,0] #towards down;
+	global x_laser=0.171 
+	global y_laser=-0.016 
+	
+	#movej(rad/sˆ2,rad/s),movel(m/sˆ2,m/s);
+	global v_scan=0.05  #the scan velocity;
+	global v_idle=0.35  #the no load velocity;
+	global v_load=0.25  #the tile load velocity;
+	global v_erect=0.10  #the up and down velocity;
+	global acce=1.20  #the unified acceleration;
+	global r_wide=0.050  #the blend radius when used in wide range;
+	global r_nar=0.010  #the blend radius when used in narrow range;
+        
+	global point_pave1=p[0.960,0.160,-0.140,0,pi,0]  #the hover centre point when pave first;
+  	global point_take1=p[0.080,0.600,0.223,0,pi,0]  #the hover centre point when take first;
+	global point_scan=p[0.080,0.600,0.417,0,pi,0] #initial scan height,approximately centre;
+	global point_turn=p[0.660,0.460,0.223,0,pi,0]  #the transition point when pave every tile;
+end
+
+#-------------------------------------------------------------------------------------------
+
+def calculate(a,b,c,d):  
+	if (p_3[0]==p_4[0]):  #when line_2 is perpendicular to x axis;
+		popup("Line_2 perpendicular to X-axis!",title="error",error=True)
+	else:
+		k_1= (p_2[1]-p_1[1])/(p_2[0]-p_1[0])  
+		k_2= (p_4[1]-p_3[1])/(p_4[0]-p_3[0]) 
+		theta_1=atan(k_1) 
+		theta_2=atan(k_2)
+		global theta_10=r2d(theta_1)
+		global theta_20=r2d(theta_2)
+		if norm(norm(r2d(theta_1)-r2d(theta_2))-90)>1:
+			popup("Intersection angle over range!",title="error",error=True) #halt
+		end
+		x_0= (k_1*p_1[0]-k_2*p_3[0]+p_3[1]-p_1[1])/(k_1-k_2) 
+		y_0= k_1*(x_0-p_1[0])+p_1[1]  
+		if (k_1>0) and (k_2<0):
+			cp_rz=(theta_1+theta_2+pi/2)/2
+		elif (k_1<0) and (k_2>0):
+			cp_rz=(theta_1+theta_2-pi/2)/2
+		else:
+			cp_rz=0
+		end
+	end
+	
+	point_cross_laser=p[x_0,y_0,scanhe,0,pi,0] #the position that laser aline corner;
+	offset=p[x_laser,y_laser,0,0,0,0]
+	point_cross=pose_trans(point_cross_laser,offset) #the position that sucker aline corner;
+	offset=p[0,0,0,0,0,-cp_rz]
+	point_rot=pose_trans(point_cross,offset)
+	offset=p[-width/2,width/2,0.195,0,0,0] #z=0.195,the height from scan to take above;
+	global point_centre=pose_trans(point_rot,offset)	#return centre
+end
+ #-------------------------------------------------------------------
+thread catch_point(): # laser1 version
+	stopping=run move_scan_max()
+	while (True):
+		if (get_standard_digital_in(1)==False): 
+			global p_0 = get_actual_tcp_pose()
+			kill stopping
+			break
+		end
+		sync() #sleep (0.001)
+	end
+end
+
+thread move_scan_max():	
+	if (point_scan[1]==0.470): #line1,p1 p2
+		offset=p[0,-0.050,0,0,0,0]
+	elif (point_scan[0]==0.110): #line2,p3 p4
+		offset=p[0.050,0,0,0,0,0]
+	end
+	point_scan_max=pose_trans(point_scan,offset)
+	movel(point_scan_max,a=acce,v=v_scan)
+end
+#-------------------------------------------------------------------
+def SubP_scan(): 
+	global scanhe=point_scan[2]-i*thickn #the variable scanheight;
+	global point_scan=p[0.360,0.470,scanhe,0,pi,0] #p1
+	movej(point_scan,a=acce,v=v_idle)    
+	catch=run catch_point()
+	join catch
+		global p_1=p_0
+	point_scan=p[0.110,0.470,scanhe,0,pi,0] #p2
+	movej(point_scan,a=acce,v=v_idle)  
+	catch=run catch_point()
+	join catch
+		global p_2=p_0
+	point_scan=p[0.110,0.470,scanhe,0,pi,0] #p3
+	movej(point_scan,a=acce,v=v_idle)   
+	catch=run catch_point()
+	join catch
+		global p_3=p_0
+	point_scan=p[0.110,0.720,scanhe,0,pi,0] #p4
+	movej(point_scan,a=acce,v=v_idle)
+	catch=run catch_point()
+	join catch
+		global p_4=p_0
+end	
+#----------------------------------------------------------------------------
+def SubP_take_pave():
+	movej(point_centre,a=acce,v=v_idle,r=r_nar) #take,up 
+	movel(pose_trans(point_centre,dropz),a=acce,v=v_erect) #take,down 
+	set_standard_digital_out(4,True) 
+	sleep(1) 
+	movel(point_centre,a=acce,v=v_erect) #take,up
+	movej(point_turn,a=acce,v=v_idle,r=r_wide)
+	
+	if (i<3): #when pave 1 2 3; 
+		offset=p[0,i*(width+gap),0,0,0,0] 
+	else:   #when pave 4 5 6; 
+		offset=p[(width+gap),(i-3)*(width+gap),0,0,0,0] 
+	end
+	point_pave_above=pose_trans(point_pave1,offset) 
+	movej(point_pave_above,a=acce,v=v_idle,r=r_nar)  #pave,up
+	movel(pose_trans(point_pave_above,dropz),a=acce,v=v_erect) #pave,down 
+	set_standard_digital_out(4,False)
+	sleep(0.5) 
+	movej(point_pave_above,a=acce,v=v_erect,r=r_nar)  #pave,up
+	movej(point_turn,a=acce,v=v_idle,r=r_wide)
+end
+#-------------------------------------------------
+def SubP_take_back(): 
+	popup("Take_back_6?","message",False,False,blocking=True)
+	while (i>=0): # global i=6
+		if (i>3):  #when take back 6 5 4;
+			offset=p[-(width+gap),(6-i)*(width+gap),0.002,0,0,0]
+		else: #(i>0) #when take back 3 2 1;
+			offset=p[0,(i-1)*(width+gap),0.002,0,0,0]
+		end
+
+		point_take_back=pose_trans(point_pave1,offset)
+		movej(point_take_back,a=acce,v=v_idle,r=r_nar)  #take,up
+		movel(pose_trans(point_take_back,dropz),a=acce,v=v_erect)  #take,down
+		set_standard_digital_out(4,True)
+		sleep(1)  
+		movel(point_take_back,a=acce,v=v_erect,r=r_wide)  #take,up
+		movej(point_turn,a=acce,v=v_load,r=r_wide) #-------------------------
+		movej(point_take1,a=acce,v=v_load,r=r_nar)   #back,up
+		offset=p[0,0,dropz[2]+(i-1)*thickn,0,0,0] 
+		point_put=pose_trans(point_take1,offset)  
+		movel(point_put,a=acce,v=v_erect)  #back,down
+		set_standard_digital_out(4,False)	
+		sleep(0.5) 
+		movel(point_take1,a=acce,v=v_idle)  #back,up
+		movej(point_turn,a=acce,v=v_idle,r=r_wide)
+		i=i-1
+	end
+end
+#----------------------------------------------------------------------------
+#main program
+
+SubP_initialize()
+global i=0
+while (i<6):
+	SubP_scan()
+	calculate(p_1,p_2,p_3,p_4)
+	SubP_take_pave() 
+	i=i+1
+end
+#SubP_take_back()
+
+    
+#---------------------------------------------------
+
+
+#global point_scan_set=p[0.950,0.050,scanh,pi,0,0]  #hoverz+scanz=-135+195=60;
+#global point_hover_set=p[0.950,0.050,-0.135,pi,0,0]  #floorz+dropz=-185+50=-135;
+#point_scan_set=p[0.080,0.325,scanhe,pi,0,0]  #hoverz+scanz=216+195=411;
+#point_hover_set=p[0.080,0.325,scanhe-0.195,pi,0,0]  #touchz+dropz=166+50=216;
+	
