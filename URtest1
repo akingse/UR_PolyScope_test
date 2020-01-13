@@ -1,0 +1,317 @@
+#akingse
+#keep the script order as below;
+
+#initia()
+#calcul()
+#thread()
+#scan()
+#takes()
+#pave()
+#tback()
+#main()
+#----------------------------------------------------------------------
+def SubP_initialize():  
+	#set_payload(2,[0,0,0])  #m=2, CoG=[0,0,0];  
+	#set_tcp(p[0,0,0,0,0,0]) #note them to avoid conflict;
+	set_standard_digital_out(4,False)  #close the vacuum valve;
+	set_standard_digital_out(5,False)  #control the AGV;
+	set_standard_digital_out(6,False)  #the flag of AGV direction;
+
+	global pi=3.14159265  #the circumference radio;
+	global width=0.300  #the width of ceramic tile,unit is meter;
+	global thickn=0.0085  #the thickness of ceramic tile; 
+	global gap=0.005  #the gap between two adjoining tiles;
+	global dropz=0.058  #the drop distance when take and pave;
+	global scanh=0.060 #	global scanh2=0.411 #
+	
+	global x_laser1=0.171  #the actual distance of x direction between laser1 and tcp;
+	global y_laser1=-0.016  #the actual distance of y direction between laser1 and tcp;
+	global x_laser2=0.000  #the correction distance of x direction between laser2 and tcp;
+	global y_laser2=0.000  #the correction distance of y direction between laser2 and tcp;
+
+	#movej(rad/sˆ2,rad/s),movel(m/sˆ2,m/s);
+	global v_scan=0.05  #the scan velocity;
+	global v_idle=0.35  #the no load velocity;
+	global v_load=0.25  #the tile load velocity;
+	global v_erect=0.10  #the up and down velocity;
+	global acce=1.20  #the unified acceleration;
+	global r_wide=0.050  #the blend radius when used in wide range;
+	global r_nar=0.010  #the blend radius when used in narrow range;
+	
+	global point_scan_set=p[0.800,0.000,0.057,pi,0,0]  # define the pose of scan first point,best z=0.057;
+	global point_pave_set=p[0.952,0.050,-0.137,pi,0,0]  # define the height of pave point,which is 50mm from floor;
+	global point_take_above=p[0.077,0.325,0.223,pi,0,0] #the above point when take tile,dropz=0.050,take down z=0.100;
+	global point_laser=p[0.384,-0.121,0.400,pi,0,0]  #the position of laser2; 
+	global point_first=p[0.950,0.050,-0.130,pi,0,0]  #the first reference tile,paved by robot;
+	global point_trans_take=p[0.650,0.355,0.218,pi,0,0]  #the transition point when take and pave;
+	global point_trans_scan=p[0.350,0.325,0.400,pi,0,0]  #the transition point before scan per;
+	
+end
+#---------------------------------------------------------------------------
+thread catch_point(): 
+	while (True):
+		if (laser_flag):  #when using laser_1;
+			if (get_standard_digital_in(1)==False): 
+				global p_0 = get_actual_tcp_pose()
+				break
+			end
+		else:  #when using laser_2;
+			if (get_standard_digital_in(2)==False): 
+				global p_0 = get_actual_tcp_pose()
+				break
+			end
+		end
+		sleep (0.001) #sync()
+	end
+end
+
+#-------------------------------------------------------------------------------------------
+def calculate(a,b,c,d):  #build on the robot base coordinate system; 
+	if (laser_flag):  #when using laser_1,calculate cp_first;
+		if (p_3[0]==p_4[0]):  #when line_2 is perpendicular to base x axis;
+			global theta_10=r2d(atan((p_2[1]-p_1[1])/(p_2[0]-p_1[0])))
+			global theta_20=90
+			cp_x=p_3[0]+width/2  #centre point value of x coordinate;
+			cp_y=(p_1[1]+p_2[1])/2+width/2   #centre point value of y coordinate;
+			cp_rz=atan((p_2[1]-p_1[1])/(p_2[0]-p_1[0]))/2  #the average angle of k_1 k_2;
+		else:
+			k_1= (p_2[1]-p_1[1])/(p_2[0]-p_1[0])  #the slope of line_1,determined by p_1 and p_2;
+			k_2= (p_4[1]-p_3[1])/(p_4[0]-p_3[0])  #the slope of line_2,determined by p_3 and p_4;
+			x_0= (k_1*p_1[0]-k_2*p_3[0]+p_3[1]-p_1[1])/(k_1-k_2) #the x of intersection of line_1 and line_2;
+			y_0= k_1*(x_0-p_1[0])+p_1[1]  #the y of intersection of line_1 and line_2;
+			theta_1=atan(k_1)  #the inclined angle of line_1;
+			theta_2=atan(k_2)  #the inclined angle of line_2;
+			global theta_10=r2d(theta_1)
+			global theta_20=r2d(theta_2)
+			if (k_1>0 and k_2<0)or(k_1<0 and k_2<0): #normal;
+				cp_x=x_0+(width/2)*cos(theta_1)-(width/2)*cos(theta_2)  
+				cp_y=y_0+(width/2)*sin(theta_1)-(width/2)*sin(theta_2)
+				cp_rz=(theta_1+theta_2+pi/2)/2 
+			else: #elif(k_1>0 and k_2>0)or(k_1<0 and k_2>0),abnormal;
+				cp_x=x_0+(width/2)*cos(theta_1)+(width/2)*cos(theta_2)  
+				cp_y=y_0+(width/2)*sin(theta_1)+(width/2)*sin(theta_2)
+				cp_rz=(theta_1+theta_2-pi/2)/2
+			end
+		end
+		cp_laser=p[cp_x,cp_y,p_1[2], pi,0,0]  #the point of laser_1;
+		tempz=point_scan_set[2]-point_pave_set[2]
+		offset=p[x_laser1,y_laser1,tempz,0,0,0-cp_rz]
+		global centre=pose_trans(cp_laser,offset)  #the centre point of the tile;
+		
+		if (norm(norm(theta_10-theta_20)-90)>0.5):
+			popup("angle12_over_range",title="error",warning=False,error=True)
+			halt
+		end
+#---------------------------------------------------------------------------------------------#
+	else:  #when using laser_2,calculate delta_per,build on base coordinates;	
+		if (p_7[0]==p_8[0]):  #when line_2 is perpendicular to base x axis;
+			d_x=p_7[0]-point_laser[0]-width/2  #the deviation value of x coordinate;
+			d_y=(p_5[1]+p_6[1])/2-point_laser[1]-width/2  #the deviation value of y coordinate;
+			d_rz=atan((p_6[1]-p_5[1])/(p_6[0]-p_5[0]))/2  #the average angle of k_1 k_2;
+			global theta_3=r2d(atan(p_6[1]-p_5[1])/(p_6[0]-p_5[0]))
+			global theta_4=90
+		else:
+			k_3=(p_6[1]-p_5[1])/(p_6[0]-p_5[0])  #determined by p_5 and p_6;
+			k_4=(p_8[1]-p_7[1])/(p_8[0]-p_7[0])  #determined by p_7 and p_8;
+			global theta_3=r2d(atan(k_3))
+			global theta_4=r2d(atan(k_4))
+			d_x=norm((k_4*(point_laser[0]-p_7[0])-point_laser[1]+p_7[1])/sqrt(k_4*k_4+1))-width/2
+			d_y=norm((k_3*(point_laser[0]-p_5[0])-point_laser[1]+p_5[1])/sqrt(k_3*k_3+1))-width/2
+			#distance formula from point laser to line3 and line4;
+			if (k_3>0 and k_4<0):
+				d_rz=(atan(k_3)+pi/2+atan(k_4))/2
+			elif (k_3<0 and k_4>0):
+				d_rz=(atan(k_3)-pi/2+atan(k_4))/2
+			else:
+				d_rz=0
+			end
+		end
+		global delta=p[d_x+x_laser2,0-d_y+y_laser2,d_rz,0,0,0]
+		if (norm(norm(theta_3-theta_4)-90)>0.5):
+			popup("angle34_over_range",title="error",warning=False,error=True)
+			halt
+		end
+	end
+end
+
+#-------------------------------------------------------------------------------
+
+def SubP_scan(): 
+	movej(point_scan_set,a=acce,v=v_idle,r=r_wide) #the start point;
+	global laser_flag=True  #when using laser_1,installed at robot;
+	
+	movej(p[0.870,-0.100,0.057,pi,0,0],a=acce,v=v_idle)         #p1
+	catch=run catch_point()	                                        
+	movel(p[0.870,-0.130,0.057,pi,0,0],a=acce,v=v_scan,r=r_nar) #p2
+		global p_1=p_0
+	kill catch
+	movej(p[0.670,-0.100,0.057,pi,0,0],a=acce,v=v_idle,r=r_nar) #p3
+	catch=run catch_point()                                           
+	movel(p[0.670,-0.130,0.057,pi,0,0],a=acce,v=v_scan)         #p4
+		global p_2=p_0
+	kill catch
+	movej(p[0.640,-0.080,0.057,pi,0,0],a=acce,v=v_idle)         #p5
+	catch=run catch_point()                                             
+	movel(p[0.610,-0.080,0.057,pi,0,0],a=acce,v=v_scan,r=r_nar) #p6
+		global p_3=p_0
+	kill catch
+	movej(p[0.640,0.130,0.057,pi,0,0],a=acce,v=v_idle,r=r_nar)  #p7		
+	catch=run catch_point()                                               
+	movel(p[0.610,0.130,0.057,pi,0,0],a=acce,v=v_scan)          #p8
+		global p_4=p_0
+		global p_4_0=0  #a meaningless number to cut points list;
+	kill catch
+	
+	global p_1=p[0.900,-0.122,0.060,pi,0,0]
+	global p_2=p[0.640,-0.121,0.060,pi,0,0]
+	global p_3=p[0.620,-0.100,0.060,pi,0,0]
+	global p_4=p[0.621,0.150,0.060, pi,0,0]
+end
+#----------------------------------------------------------------------------------
+def SubP_take_scan():  # include take and scan;
+	movej(point_trans_take,a=acce,v=v_idle,r=r_wide) 
+	movej(point_take_above,a=acce,v=v_idle,r=r_wide)   #up
+	offset=p[0,0,dropz+i*thickn,0,0,0] 
+	point_take=pose_trans(point_take_above,offset)  
+	movel(point_take,a=acce,v=v_erect)  #down
+	set_standard_digital_out(4,True)	
+	sleep(1)  #wait the suker grip the tile;
+	movel(point_take_above,a=acce,v=v_erect)  #up	
+	movej(point_trans_scan,a=acce,v=v_idle,r=r_wide)
+	global laser_flag=False  #when using laser_2,installed at AGV;
+	
+	movej(p[0.350,0.010,0.400,pi,0,0],a=acce,v=v_idle)          #p1
+	catch=run catch_point()	                                        
+	movel(p[0.350,0.040,0.400,pi,0,0],a=acce,v=v_scan,r=r_nar)  #p2
+		global p_5=p_0
+	kill catch
+	movej(p[0.510,0.010,0.400,pi,0,0],a=acce,v=v_idle,r=r_nar)  #p3
+	catch=run catch_point()                                                
+	movel(p[0.510,0.040,0.400,pi,0,0],a=acce,v=v_scan)          #p4
+		global p_6=p_0
+	kill catch
+	movej(p[0.500,-0.010,0.400,pi,0,0],a=acce,v=v_idle)         #p5
+	catch=run catch_point()                                              
+	movel(p[0.550,-0.010,0.400,pi,0,0],a=acce,v=v_scan,r=r_nar) #p6
+		global p_7=p_0
+	kill catch
+	movej(p[0.510,-0.210,0.400,pi,0,0],a=acce,v=v_idle,r=r_nar) #p7
+	catch=run catch_point()                                               
+	movel(p[0.550,-0.210,0.400,pi,0,0],a=acce,v=v_scan)         #p8
+		global p_8=p_0
+	kill catch  
+	movej(point_trans_pave,a=acce,v=v_load,r=r_nar) 
+	
+	global p_5=p[0.350,0.030,0.400,pi,0,0]
+	global p_6=p[0.515,0.029,0.400,pi,0,0]
+	global p_7=p[0.537,0.010,0.400,pi,0,0]
+	global p_8=p[0.535,-0.220,0.400,pi,0,0]
+end
+#--------------------------------------------------------------------------------------------------
+def SubP_pave():  
+	if (i<2):  #when pave 2 3;
+		offset=p[delta[0],delta[1]-(i+1)*(width+gap),0,0,0,delta[2]]
+	elif (i>=2 and i<5):  #when pave 4 5 6;
+		offset=p[delta[0]-(width+gap),delta[1]-(i-2)*(width+gap),0,0,0,delta[2]]
+	else:  #(i>=5 and i<8), when pave 7 8 9;
+		offset=p[delta[0]-(width+gap),delta[1]-(i-5)*(width+gap),0,0,0,delta[2]]
+	end
+	
+	point_pave_above=pose_trans(centre,offset) 
+	movej(point_pave_above,a=acce,v=v_idle,r=r_nar)  #pave,up
+	offset=p[0,0,dropz,0,0,0]
+	point_pave=pose_trans(point_pave_above,offset) 
+	movel(point_pave,a=acce,v=v_erect)  #pave,down
+	set_standard_digital_out(4,False)
+	sleep(0.5)  #wait the suker release the tile;
+	movej(point_pave_above,a=acce,v=v_erect,r=r_nar)  #pave,up
+	movej(point_trans_take,a=acce,v=v_idle,r=r_wide)
+end
+#---------------------------------------------------------------------------------------
+def SubP_take_back(): #take back 6 5 4 3 2;
+	popup("Take_back_5","message",False,False,blocking=True)
+	#global i=5
+	while (i>=0): #(i>=0) can take 1;
+		if (i>2):  #when take back 6 5 4;
+			offset=p[0-(width+gap),0-(5-i)*(width+gap),0,0,0,0]
+		else: #(i>0) #when take back 3 2;
+			offset=p[0,0-i*(width+gap),0,0,0,0]
+		end
+
+		point_take_back_above=pose_trans(centre,offset)
+		movej(point_take_back_above,a=acce,v=v_idle,r=r_nar)  #take,up
+		offset=p[0,0,dropz+thickn,0,0,0]
+		point_take_back=pose_trans(point_take_back_above,offset)
+		movel(point_take_back,a=acce,v=v_erect)  #take,down
+		set_standard_digital_out(4,True)
+		sleep(1)  
+		movel(point_take_back_above,a=acce,v=v_erect,r=r_wide)  #take,up
+		movej(point_trans_take,a=acce,v=v_load,r=r_wide) 
+		
+		movej(point_take_above,a=acce,v=v_load,r=r_nar)   #back,up
+		offset=p[0,0,dropz+(i-1)*thickn,0,0,0] 
+		point_take=pose_trans(point_take_above,offset)  
+		movel(point_take,a=acce,v=v_erect)  #back,down
+		set_standard_digital_out(4,False)	
+		sleep(0.5) 
+		movel(point_take_above,a=acce,v=v_idle)  #back,up
+		movej(point_trans_take,a=acce,v=v_idle,r=r_wide)
+		i=i-1
+	end
+end
+#----------------------------------------------------------------------
+#main program
+
+SubP_initialize()
+global i=0
+SubP_scan()
+calculate(p_1,p_2,p_3,p_4)
+while (i<5):
+	SubP_take_scan()
+	calculate(p_5,p_6,p_7,p_8)
+	SubP_pave() 
+	i=i+1
+end
+#SubP_take_back()
+
+set_standard_digital_out(5,True)  #move the AGV;note when take back;
+sleep(9)
+set_standard_digital_out(5,False) 
+if (get_standard_digital_in(0)):  #wait AGV finished signal;
+	SubP_scan()  
+	calculate(p_1,p_2,p_3,p_4)
+	while (i<8):
+		SubP_take_scan()
+		calculate(p_5,p_6,p_7,p_8)
+		SubP_pave() 
+		i=i+1
+	end
+end
+SubP_take_back()
+#================================================================================================
+
+thread catch_tcp(): #get real time tcp;
+	while (True):
+		global actual=get_actual_tcp_pose()
+		sleep (0.001)
+	end
+end
+
+#-----------------------------------------------------------------------------------------------
+
+
+pose位姿变量 point_1=p[x,y,z,rx,ry,rz]
+x,y,z为机座(BASE)坐标系（x左方向为正，y尾插方向为正，z上方为正）
+此处rx,ry,rz采用旋转矢量法，R=pi*[cos(a/2),sin(a/2),0]
+offset局部临时变量 offset=p[x,y,z,rx,ry,rz]
+point_2=pose_trans(point_1,offset)
+位姿转换函数，以point_1作为基准坐标系
+pave之后加force模式；
+#centre=p[cp_x+x_laser1,cp_y+y_laser1,cp_z, pi*cos(cp_rz/2),pi*sin(cp_rz/2),0]#vector rotation theory;
+
+pose_add() 用基座坐标系作为参考
+pose_trans()函数，先平移后旋转，涉及多次平移的坐标转换要格外注意变换顺序，不在一个方向上的平移不能直接相加。
+变量越多越不可控，越容易出现误差。
+
+
+
