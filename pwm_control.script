@@ -55,6 +55,46 @@ while (i < 5): # 0,1,2,3,4
 end
 SubP_take_back()
 
+#------------------------------------------------------------------------------------
+thread pwm_control(): # Pulse width modulation control
+	while True:
+		set_standard_digital_out(7,True)
+		sleep(0.001*t)
+		set_standard_digital_out(7,False)
+		sleep(0.001*(10-t))
+	end
+end
+
+def SubP_pave(): #pave 6 pieces
+	movej(point_turn,a=aj,v=vj_idle,r=r_wide)
+	if (i<2): #when pave 2 3;
+		offset=p[0,-(i+1)*(width+gap),0,0,0,0]
+	else: #(i<5)  when pave 4 5 6;
+		offset=p[-(width+gap),-(i-2)*(width+gap),0.002,0,0,0] #0.002 because robotarm unlevel;
+	end
+    # offset=p[0,0,-(i+1)*thickn,0,0,0] #palletizing
+
+	point_pave_move=pose_trans(point_centre,offset) #posetrans tile first;
+    point_pave = pose_trans(point_pave_move, delta_offset)
+	movej(point_pave,a=aj,v=vj_idle,r=r_nar)  #pave,up
+	point_touch=pose_trans(point_pave,dropz)
+	movel(point_touch,a=al,v=vl_erect) #pave,down
+	
+	set_standard_digital_out(3,False)  #PWM contor initialize;
+	global t=8                         #Duty cycle: 5 6 7 8 9
+	thr_motor=run pwm_control()
+	offset=p[0,0,-0.002,0,0,0]
+	movel(pose_trans(point_touch,offset),a=al,v=vl_erect)
+	
+	sleep(5)
+	kill thr_motor
+	set_standard_digital_out(7,False)
+	set_standard_digital_out(4,False)
+	sleep(0.5)
+	movej(point_pave,a=aj,v=vl_erect,r=r_nar)  #pave,up
+	movej(point_turn,a=aj,v=vj_idle,r=r_wide)
+end
+
 
 
 
