@@ -1,7 +1,7 @@
 # ----------------------------------------------------------------
 # README
 # version number:URtest5
-# creat time:2019/10/31
+# create time:2019/10/31
 # editor: akingse
 # design for:CUS2019-6
 # procedure:take and put 1st,scan 1st,take n then scan n then pave n.
